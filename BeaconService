@@ -8,7 +8,6 @@ import android.bluetooth.le.ScanResult;
 import android.bluetooth.le.ScanSettings;
 import android.content.Context;
 import android.util.Log;
-import com.example.fms.R;
 
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -20,9 +19,9 @@ import java.util.Vector;
 
 import android.os.Handler;
 
-import com.example.fms.Common.Constants;
+import Common.Constants;
 
-public class FMS_BeaconService {
+public class BeaconService {
 
     BluetoothAdapter mBluetoothAdapter;
     BluetoothLeScanner mBluetoothLeScanner;
@@ -46,7 +45,7 @@ public class FMS_BeaconService {
 
     private final Handler fHandler;
 
-    public FMS_BeaconService(Context context, Handler handler) {
+    public BeaconService(Context context, Handler handler) {
         fHandler = handler;
     }
 
@@ -126,7 +125,7 @@ public class FMS_BeaconService {
                             //Log.e("비콘알람", address+"//"+currentData.prealarm);
 
                             if (isAutoSync) {
-                                fHandler.obtainMessage(Constants.SNYC_BEACON_GET_DATA, new FMS_DataBeacon(
+                                fHandler.obtainMessage(Constants.SNYC_BEACON_GET_DATA, new DataBeacon(
                                         address,
                                         rssi,
                                         now,
@@ -140,7 +139,7 @@ public class FMS_BeaconService {
                                         currentData.status,
                                         scanResult.getDevice())).sendToTarget();
                             } else {
-                                fHandler.obtainMessage(Constants.NEARBY_BEACON_GET_DATA, new FMS_DataBeacon(
+                                fHandler.obtainMessage(Constants.NEARBY_BEACON_GET_DATA, new DataBeacon(
                                         address,
                                         rssi,
                                         now,
