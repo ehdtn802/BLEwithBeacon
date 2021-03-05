@@ -1,0 +1,343 @@
+import android.bluetooth.BluetoothAdapter;
+import android.bluetooth.le.BluetoothLeAdvertiser;
+import android.bluetooth.le.BluetoothLeScanner;
+import android.bluetooth.le.ScanCallback;
+import android.bluetooth.le.ScanFilter;
+import android.bluetooth.le.ScanRecord;
+import android.bluetooth.le.ScanResult;
+import android.bluetooth.le.ScanSettings;
+import android.content.Context;
+import android.util.Log;
+import com.example.fms.R;
+
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.List;
+import java.util.Locale;
+import java.util.UUID;
+import java.util.Vector;
+
+import android.os.Handler;
+
+import com.example.fms.Common.Constants;
+
+public class FMS_BeaconService {
+
+    BluetoothAdapter mBluetoothAdapter;
+    BluetoothLeScanner mBluetoothLeScanner;
+    BluetoothLeAdvertiser mBluetoothLeAdvertiser;
+    ScanSettings.Builder mScanSettings;
+    List<ScanFilter> scanFilters;
+    SimpleDateFormat simpleDateFormat = new SimpleDateFormat("HH:mm:ss", Locale.KOREAN);
+
+
+    private final String MANUFACTUREID = "5900";
+    private final String TYPE = "4D";
+    private final String LENTGH = "14";
+    private final String PID = "020106";
+
+
+    private boolean isAutoSync = false;
+    private boolean isScan = false;
+
+
+    public static UUID UUID_TDCS_SERVICE = UUID.fromString("6E400001-B5A3-F393-E0A9-E50E24DCCA9E");
+
+    private final Handler fHandler;
+
+    public FMS_BeaconService(Context context, Handler handler) {
+        fHandler = handler;
+    }
+
+
+    public void stopScanning() {
+        mBluetoothLeScanner.stopScan(mScanCallback);
+        mBluetoothAdapter.cancelDiscovery();
+        isScan = false;
+    }
+
+    public void startScanning() {
+        mBluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
+        mBluetoothLeScanner = mBluetoothAdapter.getBluetoothLeScanner();
+        mBluetoothLeAdvertiser = mBluetoothAdapter.getBluetoothLeAdvertiser();
+        mScanSettings = new ScanSettings.Builder();
+        mScanSettings.setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY);
+        ScanSettings scanSettings = mScanSettings.build();
+        scanFilters = new Vector<>();
+        ScanFilter.Builder scanFilter = new ScanFilter.Builder();
+        scanFilter.setManufacturerData(0x5900, null);
+        //scanFilter.setDeviceName("SKTS-DL-65535_4294967295C");
+        //scanFilter.setDeviceName("SKTS-DL-1_1C");
+        ScanFilter scan = scanFilter.build();
+        scanFilters.add(scan);
+        mBluetoothLeScanner.startScan(scanFilters, scanSettings, mScanCallback);
+        isScan = true;
+    }
+
+    public boolean scanStatus(){
+        return isScan;
+    }
+
+
+    ScanCallback mScanCallback = new ScanCallback() {
+        @Override
+        public void onScanResult(int callbackType, ScanResult result) {
+            super.onScanResult(callbackType, result);
+            try {
+                //final ScanRecord scanRecord = result.getScanRecord();
+                // Log.d("getTxPowerLevel()", scanRecord.getTxPowerLevel() + "");
+                // Log.d("onScanResult()", result.getDevice().getAddress() + "\n" + result.getRssi() + "\n" + result.getDevice().getName()
+                //         + "\n" + result.getDevice().getBondState() + "\n" + result.getDevice().getType());
+
+                final ScanResult scanResult = result;
+                new Thread(new Runnable() {
+                    @Override
+                    public void run() {
+
+                        packetData currentData = new packetData();
+                        String address;
+                        String name;
+                        String now;
+                        int rssi = 0;
+
+
+                        if (scanResult.getDevice().getName() != null && scanResult.getDevice().getName().contains("SKTS-DL")) {
+                            address = scanResult.getDevice().getAddress();
+                            name = scanResult.getDevice().getName();
+                            rssi = scanResult.getRssi();
+                            now = simpleDateFormat.format(new Date());
+                           // Log.d("start", "===================" + address + "===================");
+
+                            //printScanRecord(scanResult.getScanRecord().getBytes());
+                            //getUUID(scanResult);
+                            currentData = getDataFromPacket(scanResult.getScanRecord().getBytes());
+                            if (currentData != null) {
+                             //   Log.d("end", "========================================================");
+                            } else {
+                              //  Log.d("NOTGET", address + "not right data\n\n");
+                             //   Log.d("end", "========================================================");
+
+                                return;
+                            }
+                            if (address == null) {
+                                return;
+                            }
+                            //Log.e("비콘알람", address+"//"+currentData.prealarm);
+
+                            if (isAutoSync) {
+                                fHandler.obtainMessage(Constants.SNYC_BEACON_GET_DATA, new FMS_DataBeacon(
+                                        address,
+                                        rssi,
+                                        now,
+                                        name.replaceFirst("SKTS-DL_", ""),
+                                        currentData.temperature,
+                                        currentData.huminity,
+                                        currentData.baterry,
+                                        currentData.alarm,
+                                        currentData.prealarm,
+                                        currentData.activeTime,
+                                        currentData.status,
+                                        scanResult.getDevice())).sendToTarget();
+                            } else {
+                                fHandler.obtainMessage(Constants.NEARBY_BEACON_GET_DATA, new FMS_DataBeacon(
+                                        address,
+                                        rssi,
+                                        now,
+                                        name.replaceFirst("SKTS-DL_", ""),
+                                        currentData.temperature,
+                                        currentData.huminity,
+                                        currentData.baterry,
+                                        currentData.alarm,
+                                        currentData.prealarm,
+                                        currentData.activeTime,
+                                        currentData.status,
+                                        scanResult.getDevice())).sendToTarget();
+                            }
+                        }
+                    }
+                }).start();
+
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+
+        }
+
+        @Override
+        public void onBatchScanResults(List<ScanResult> results) {
+            super.onBatchScanResults(results);
+            Log.d("onBatchScanResults", results.size() + "");
+        }
+
+        @Override
+        public void onScanFailed(int errorCode) {
+            super.onScanFailed(errorCode);
+            Log.d("onScanFailed()", errorCode + "");
+        }
+    };
+
+
+    private packetData getDataFromPacket(byte[] scanRecord) {
+        List<Byte> BeaconBuffer = new ArrayList<Byte>();
+        packetData data = new packetData();
+        BeaconBuffer.clear();
+        if (scanRecord.length > 0) {
+            for (int i = 0; i < scanRecord.length; i++) {
+                BeaconBuffer.add(scanRecord[i]);
+            }
+        }
+
+        String rawPacket = null;
+        rawPacket = ByteArrayToString(scanRecord);
+
+        if (rawPacket.length() > 0) {
+//           if(!rawPacket.substring(10,14).equals(MANUFACTUREID)) {
+//                Log.d("packet check", "MANUFACTUREID incorrect:" + rawPacket.substring(10, 13) + "is not" + MANUFACTUREID);
+//                return false;
+            //}else
+            if (!rawPacket.substring(14, 16).equals(TYPE)) {
+                //Log.d("packet check", "TYPE incorrect:" + rawPacket.substring(14, 15) + "is not" + TYPE);
+                return null;
+//            }else if(!rawPacket.substring(16,18).equals(LENTGH)) {
+//                Log.d("packet check", "LENTGH incorrect:" + rawPacket.substring(16, 17) + "is not" + LENTGH);
+//                return false;
+//            }else if(!rawPacket.substring(18,20).equals("01")){
+//                Log.d("packet check", "Sensing is not work");
+//                return false;
+            } else {
+                int temper, humidi, al, activetime, stat;
+
+                stat = (BeaconBuffer.get(9) & 0xFF);
+                data.setStatus(stat);
+               // Log.d("status", ""+stat);
+
+                temper = (BeaconBuffer.get(10) & 0xFF);
+                temper |= ((BeaconBuffer.get(11) << 8) & 0xFF00);
+                if(((BeaconBuffer.get(11) >> 7) & 0xFF) > 0){
+                    temper = (-1)*(~(temper+0xFFFF0000) + 0x01);
+                }
+                data.setTemperature(temper / 100.00);
+              //  Log.d("temperature", "" + data.getTemperature());
+
+                humidi = (BeaconBuffer.get(12) & 0xFF);
+                humidi |= ((BeaconBuffer.get(13) << 8) & 0xFF00);
+                data.setHuminity(humidi / 100.00);
+              //  Log.d("huminity", "" + data.getHuminity());
+
+                data.setBaterry(BeaconBuffer.get(14) & 0xFF);
+             //   Log.d("baterry", "" + data.getBaterry());
+
+                activetime = (BeaconBuffer.get(15) & 0xFF);
+                activetime |= ((BeaconBuffer.get(16) << 8) & 0xFFFF);
+                activetime |= ((BeaconBuffer.get(17) << 16) & 0xFFFFFF);
+                activetime |= ((BeaconBuffer.get(18) << 24) & 0xFFFFFFFF);
+                data.setActiveTime(activetime);
+               // Log.d("activetime", "" + data.getActiveTime());
+
+                al = (BeaconBuffer.get(27) & 0xFF);
+                data.setAlarm(al);
+                //Log.d("alarm", "" + data.getAlarm());
+
+                data.setPrealarm(BeaconBuffer.get(28));
+                //Log.d("prealarm", "" + data.getPrealarm());
+                return data;
+            }
+
+        } else {
+            Log.d("길이가", "0");
+        }
+        return null;
+    }
+
+
+    public boolean CheckEnableBle() {
+        if (mBluetoothAdapter.isEnabled()) {
+            return true;
+        } else {
+            return false;
+        }
+    }
+
+
+    public static String ByteArrayToString(byte[] ba) {
+        StringBuilder hex = new StringBuilder(ba.length * 2);
+        for (byte b : ba)
+            //hex.append(b + " ");
+            hex.append(String.format("%02X", b & 0xff));
+
+        return hex.toString();
+    }
+
+    public void setAutoSync() {
+        this.isAutoSync = true;
+    }
+
+
+    public class packetData {
+        double temperature = 0;
+        double huminity = 0;
+        int baterry = 0;
+        int alarm = 0;
+        byte prealarm = 0;
+        long activeTime = 0;
+        int status = 0;
+
+        public double getTemperature() {
+            return temperature;
+        }
+
+        public void setTemperature(double temperature) {
+            this.temperature = temperature;
+        }
+
+        public double getHuminity() {
+            return huminity;
+        }
+
+        public void setHuminity(double huminity) {
+            this.huminity = huminity;
+        }
+
+        public int getBaterry() {
+            return baterry;
+        }
+
+        public void setBaterry(int baterry) {
+            this.baterry = baterry;
+        }
+
+        public int getAlarm() {
+            return alarm;
+        }
+
+        public void setAlarm(int alarm) {
+            this.alarm = alarm;
+        }
+
+        public byte getPrealarm() {
+            return prealarm;
+        }
+
+        public void setPrealarm(byte prealarm) {
+            this.prealarm = prealarm;
+        }
+
+        public long getActiveTime() {
+            return activeTime;
+        }
+
+        public void setActiveTime(long activeTime) {
+            this.activeTime = activeTime;
+        }
+
+        public int getStatus() {
+            return status;
+        }
+
+        public void setStatus(int status) {
+            this.status = status;
+        }
+    }
+
+}
