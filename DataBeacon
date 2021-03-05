@@ -3,7 +3,7 @@ import android.bluetooth.BluetoothDevice;
 
 import java.math.BigDecimal;
 
-public class FMS_DataBeacon {
+public class DataBeacon {
 
     private String beacon_address;
     private int beacon_rssi;
