@@ -1,0 +1,141 @@
+
+import android.bluetooth.BluetoothDevice;
+
+import java.math.BigDecimal;
+
+public class FMS_DataBeacon {
+
+    private String beacon_address;
+    private int beacon_rssi;
+    private String beacon_now;
+    private String beacon_name;
+    private double beacon_temperature;
+    private double beacon_humidity;
+    private int beacon_battery;
+    private int alarm;
+    private byte prealarm;
+    private long activeTime;
+    private int status;
+    private BluetoothDevice beacon_device;
+
+
+    public FMS_DataBeacon(String address,
+                          int rssi,
+                          String now,
+                          String name,
+                          double temperature,
+                          double humidity,
+                          int battery,
+                          int alarm,
+                          byte prealarm,
+                          long activeTime,
+                          int stat,
+                          BluetoothDevice device) {
+        this.beacon_name = name;
+        this.beacon_address = address;
+        this.beacon_rssi = rssi;
+        this.beacon_now = now;
+        this.beacon_temperature = temperature;
+        this.beacon_humidity = humidity;
+        this.beacon_battery = battery;
+        this.alarm = alarm;
+        this.prealarm = prealarm;
+        this.activeTime = activeTime;
+        this.status = stat;
+        this.beacon_device = device;
+
+    }
+
+    public String getBeacon_Address() {
+        return beacon_address;
+    }
+    public void setBeacon_address(String address){
+        this.beacon_address = address;
+    }
+
+    public int getBeacon_Rssi() {
+        return beacon_rssi;
+    }
+    public void setBeacon_rssi(int rssi){
+        this.beacon_rssi = rssi;
+    }
+
+    public String getBeacon_Now() {
+        return beacon_now;
+    }
+    public void setBeacon_now(String now){
+        this.beacon_now = now;
+    }
+
+
+    public String getBeacon_Name() {
+        return beacon_name;
+    }
+    public void setBeacon_name(String name){
+        this.beacon_name = name;
+    }
+
+    public double getBeacon_temperature(){
+        return beacon_temperature;
+
+    }
+
+    public void setBeacon_temperature(double temperature){
+        this.beacon_temperature = temperature;
+    }
+
+    public double getBeacon_humidity() {
+        return beacon_humidity;
+    }
+    public void setBeacon_humidity(double humidity){
+        this.beacon_humidity = humidity;
+    }
+
+
+    public int getBeacon_battery() {
+        return beacon_battery;
+    }
+    public  void setBeacon_battery(int battery){
+        this.beacon_battery = battery;
+    }
+
+
+    public BluetoothDevice getBeacon_device() {
+        return beacon_device;
+    }
+    public  void setBeacon_device(BluetoothDevice device){
+        this.beacon_device = device;
+    }
+
+    public int getAlarm() {
+        return alarm;
+    }
+
+    public void setAlarm(int alarm) {
+        this.alarm = alarm;
+    }
+
+    public byte getPrealarm() {
+        return prealarm;
+    }
+
+    public void setPrealarm(byte prealarm) {
+        this.prealarm = prealarm;
+    }
+
+    public long getActiveTime() {
+        return activeTime;
+    }
+
+    public void setActiveTime(long activeTime) {
+        this.activeTime = activeTime;
+    }
+
+    public int getStatus() {
+        return status;
+    }
+
+    public void setStatus(int status) {
+        this.status = status;
+    }
+}
