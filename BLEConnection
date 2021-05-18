@@ -1,0 +1,289 @@
+ 
+ 
+ 
+ 
+ private void connectDevice(final BluetoothDevice _device) {
+        // update the status
+        //mConnectionState.setText( "Connecting to " + _device.getAddress() );
+        mGattServices.clear();
+        mGattCharacteristics.clear();
+        mWritableCharacteristics.clear();
+
+        Handler mHandler = new Handler(getApplicationContext().getMainLooper());
+        mHandler.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    ble_gatt_ = _device.connectGatt(getApplicationContext(), false, gatt_client_cb, BluetoothDevice.TRANSPORT_LE);
+                    refreshDeviceCache(ble_gatt_);
+                } else {
+                    ble_gatt_ = _device.connectGatt(getApplicationContext(), false, gatt_client_cb);
+                    refreshDeviceCache(ble_gatt_);
+                }
+            }
+        }, 1000);
+
+    }
+		
+		
+		/*Disconnect Gatt Server*/
+
+    public void disconnectGattServer() {
+        // Log.d( TAG, "Closing Gatt connection" );
+        // disconnect and close the gatt
+        if (ble_gatt_ != null) {
+            ble_gatt_.disconnect();
+            ble_gatt_.close();
+        }
+        // reset the connection flag
+        connected_ = false;
+        ble_gatt_ = null;
+        mDefaultService = null;
+        mGattServices.clear();
+        mGattCharacteristics.clear();
+        mWritableCharacteristics.clear();
+        disconnectCount = 0;
+        if (retry_) {
+            retry_ = false;
+            connectDevice(ble_device);
+        } else {
+            retryCount = 0;
+        }
+    }
+
+    /*Gatt Client Callback class*/
+
+    private class GattClientCallback extends BluetoothGattCallback {
+        @Override
+        public void onConnectionStateChange(BluetoothGatt _gatt, int _status, int _new_state) {
+            super.onConnectionStateChange(_gatt, _status, _new_state);
+            Log.d("connect status", "" + _status);
+
+            if (_status == BluetoothGatt.GATT_FAILURE) {
+
+                if (retryCount < 3) {
+                    retryCount++;
+                    retry_ = true;
+                    if (ble_gatt_ != null) {
+                        refreshDeviceCache(ble_gatt_);
+                        disconnectCount++;
+                        if (disconnectCount < 2) {
+                            disconnectGattServer();
+                        }
+                    }
+                    dialogMsg = getString(R.string.connecting_to_s_logger) + " " + retryCount;
+                    Message msg = bHandler.obtainMessage(Constants.CONN_SET_DIALOG_VALUE_CHANGE);
+                    bHandler.sendMessage(msg);
+                } else if (retryCount == 3) {
+                    retryCount = 0;
+                    disconnectCount++;
+                    if (ble_gatt_ != null && disconnectCount < 2) {
+                        disconnectGattServer();
+                    }
+                    Message msg = bHandler.obtainMessage(Constants.CONNECTFAIL);
+                    bHandler.sendMessage(msg);
+
+                }
+
+                return;
+            } else if (_status != BluetoothGatt.GATT_SUCCESS) {
+                if (retryCount < 3) {
+                    retryCount++;
+                    retry_ = true;
+                    if (ble_gatt_ != null) {
+                        refreshDeviceCache(ble_gatt_);
+                        disconnectCount++;
+                        if (disconnectCount < 2) {
+                            disconnectGattServer();
+                        }
+                    }
+                    dialogMsg = getString(R.string.connecting_to_s_logger) + " " + retryCount;
+                    Message msg = bHandler.obtainMessage(Constants.CONN_SET_DIALOG_VALUE_CHANGE);
+                    bHandler.sendMessage(msg);
+                } else if (retryCount == 3) {
+                    disconnectCount++;
+                    if (ble_gatt_ != null && disconnectCount < 2) {
+                        disconnectGattServer();
+                    }
+                    Message msg = bHandler.obtainMessage(Constants.CONNECTFAIL);
+                    bHandler.sendMessage(msg);
+                }
+                return;
+            }
+
+            if (_new_state == BluetoothProfile.STATE_CONNECTED) {
+                // update the connection status message
+                // set the connection flag
+                Message msg = bHandler.obtainMessage(Constants.CONNECTED);
+                //Bundle bundle = new Bundle();
+                //bundle.putString(TOAST, _gatt.getDevice().getUuids().toString());
+                bHandler.sendMessage(msg);
+                connected_ = true;
+                _gatt.discoverServices();
+                Log.d(TAG, "Connected to the GATT server");
+            } else if (_new_state == BluetoothProfile.STATE_DISCONNECTED) {
+                disconnectCount++;
+                if (ble_gatt_ != null && disconnectCount < 2) {
+                    disconnectGattServer();
+                }
+            }
+        }
+
+        @Override
+        public void onServicesDiscovered(BluetoothGatt _gatt, int _status) {
+            super.onServicesDiscovered(_gatt, _status);
+            // check if the discovery failed
+            if (_status != BluetoothGatt.GATT_SUCCESS) {
+                Log.e(TAG, "Device service discovery failed, status: " + _status);
+                return;
+            }
+            // find discovered characteristics
+            List<BluetoothGattCharacteristic> matching_characteristics = BluetoothUtils.findBLECharacteristics(_gatt);
+            if (matching_characteristics.isEmpty()) {
+                Log.e(TAG, "Unable to find characteristics");
+                return;
+            }
+            // log for successful discovery
+            checkGattServices(matching_characteristics);
+            //setCharacteristicNotification(true);
+            Log.d(TAG, "Services discovery is successful");
+        }
+
+        @Override
+        public void onCharacteristicChanged(BluetoothGatt _gatt, BluetoothGattCharacteristic _characteristic) {
+            super.onCharacteristicChanged(_gatt, _characteristic);
+
+            Log.d(TAG, "characteristic changed: " + _characteristic.toString());
+            readCharacteristic(_characteristic);
+        }
+
+        @Override
+        public void onCharacteristicWrite(BluetoothGatt _gatt, BluetoothGattCharacteristic _characteristic, int _status) {
+            super.onCharacteristicWrite(_gatt, _characteristic, _status);
+            if (_status == BluetoothGatt.GATT_SUCCESS) {
+                Log.d(TAG, "Characteristic written successfully" + _status);
+            } else {
+                Log.e(TAG, "Characteristic write unsuccessful, status: " + _status);
+                disconnectCount++;
+                if (ble_gatt_ != null && disconnectCount < 2) {
+                    disconnectGattServer();
+                }
+            }
+        }
+
+        @Override
+        public void onCharacteristicRead(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic, int status) {
+            super.onCharacteristicRead(gatt, characteristic, status);
+            if (status == BluetoothGatt.GATT_SUCCESS) {
+                Log.d(TAG, "Characteristic read successfully");
+                readCharacteristic(characteristic);
+            } else {
+                Log.e(TAG, "Characteristic read unsuccessful, status: " + status);
+                // Trying to read from the Time Characteristic? It doesnt have the property or permissions
+                // set to allow this. Normally this would be an error and you would want to:
+                // disconnectGattServer();
+            }
+        }
+
+        @Override
+        public void onDescriptorRead(BluetoothGatt gatt, BluetoothGattDescriptor descriptor, int status) {
+            super.onDescriptorRead(gatt, descriptor, status);
+            if (status == BluetoothGatt.GATT_SUCCESS) {
+                Log.d(TAG, "DescriptorRead successfully");
+            } else {
+                Log.e(TAG, "DescriptorRead read unsuccessful, status: " + status);
+            }
+        }
+
+        @Override
+        public void onDescriptorWrite(BluetoothGatt gatt, BluetoothGattDescriptor descriptor, int status) {
+            super.onDescriptorWrite(gatt, descriptor, status);
+            if (status == BluetoothGatt.GATT_SUCCESS) {
+                Log.d(TAG, "onDescriptorWrite successfully:" + descriptor.getUuid().toString());
+                //여기서부터 시작
+                progressDialog.setCanceledOnTouchOutside(false);
+                connect_alert_flag = false;
+                if (connect_alert != null) {
+                    if (connect_alert.isShowing()) {
+                        connect_alert.dismiss();
+                        msg = bHandler.obtainMessage(Constants.DIALOG_SHOW);
+                        bHandler.sendMessage(msg);
+                        connect_alert = null;
+                    }
+                }
+
+                start_ = false;
+                TimerCount = 0;         //타이머 카운트 초기화
+                checkTimer_ = true;     //시간 체크 활성화
+                //divide_ = true;
+                doGetProductNum_ = true;
+            } else {
+                Log.e(TAG, "onDescriptorWrite read unsuccessful, status: " + status);
+            }
+        }
+
+        @Override
+        public void onMtuChanged(BluetoothGatt gatt, int mtu, int status) {
+            super.onMtuChanged(gatt, mtu, status);
+
+            if (status == BluetoothGatt.GATT_SUCCESS) {
+                Log.d(TAG, "onMtuChanged successfully");
+            } else {
+                Log.e(TAG, "onMtuChanged read unsuccessful, status: " + status);
+            }
+        }
+
+        @Override
+        public void onPhyRead(BluetoothGatt gatt, int txPhy, int rxPhy, int status) {
+            super.onPhyRead(gatt, txPhy, rxPhy, status);
+            if (status == BluetoothGatt.GATT_SUCCESS) {
+                Log.d(TAG, "onPhyRead successfully");
+            } else {
+                Log.e(TAG, "onPhyRead read unsuccessful, status: " + status);
+            }
+        }
+
+        @Override
+        public void onPhyUpdate(BluetoothGatt gatt, int txPhy, int rxPhy, int status) {
+            super.onPhyUpdate(gatt, txPhy, rxPhy, status);
+            if (status == BluetoothGatt.GATT_SUCCESS) {
+                Log.d(TAG, "onPhyUpdate successfully");
+            } else {
+                Log.e(TAG, "onPhyUpdate read unsuccessful, status: " + status);
+            }
+        }
+
+        @Override
+        public void onReadRemoteRssi(BluetoothGatt gatt, int rssi, int status) {
+            super.onReadRemoteRssi(gatt, rssi, status);
+            if (status == BluetoothGatt.GATT_SUCCESS) {
+                Log.d(TAG, "onReadRemoteRssi successfully");
+            } else {
+                Log.e(TAG, "onReadRemoteRssi read unsuccessful, status: " + status);
+            }
+        }
+
+
+        @Override
+        public void onReliableWriteCompleted(BluetoothGatt gatt, int status) {
+            super.onReliableWriteCompleted(gatt, status);
+            if (status == BluetoothGatt.GATT_SUCCESS) {
+                Log.d(TAG, "onReliableWriteCompleted successfully");
+            } else {
+                Log.e(TAG, "onReliableWriteCompleted read unsuccessful, status: " + status);
+            }
+        }
+
+        /*Log the value of the characteristic
+        @param characteristic*/
+
+        private void readCharacteristic(BluetoothGattCharacteristic _characteristic) {
+            byte[] msg = _characteristic.getValue();
+            StringBuilder sb = new StringBuilder();
+            for (final byte b : msg) {
+                sb.append(String.format("%02x ", b & 0xff));
+            }
+            Log.d("업스트림 메시지 : ", sb.toString());
+            upDataPro.getDataFromPacket(msg);
+        }
+    }
