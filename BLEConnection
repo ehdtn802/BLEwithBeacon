@@ -1,5 +1,22 @@
- 
- 
+
+
+public String mDeviceName;
+public String mDeviceAddress;
+public int mDeviceStatus;
+private BluetoothGatt ble_gatt_;
+public BluetoothDevice ble_device;
+final ConnectActivity.GattClientCallback gatt_client_cb = new ConnectActivity.GattClientCallback();
+private BluetoothAdapter mBluetoothAdapter;
+private ArrayList<BluetoothGattService> mGattServices
+            = new ArrayList<BluetoothGattService>();
+private BluetoothGattService mDefaultService = null;
+private ArrayList<BluetoothGattCharacteristic> mGattCharacteristics
+            = new ArrayList<BluetoothGattCharacteristic>();
+private ArrayList<BluetoothGattCharacteristic> mWritableCharacteristics
+            = new ArrayList<BluetoothGattCharacteristic>();
+private BluetoothGattCharacteristic mDefaultChar = null;
+private boolean connected_;
+
  
  
  private void connectDevice(final BluetoothDevice _device) {
@@ -26,8 +43,7 @@
     }
 		
 		
-		/*Disconnect Gatt Server*/
-
+/*Disconnect Gatt Server*/
     public void disconnectGattServer() {
         // Log.d( TAG, "Closing Gatt connection" );
         // disconnect and close the gatt
@@ -52,7 +68,7 @@
     }
 
     /*Gatt Client Callback class*/
-
+    //메시지 수신
     private class GattClientCallback extends BluetoothGattCallback {
         @Override
         public void onConnectionStateChange(BluetoothGatt _gatt, int _status, int _new_state) {
@@ -200,23 +216,6 @@
             super.onDescriptorWrite(gatt, descriptor, status);
             if (status == BluetoothGatt.GATT_SUCCESS) {
                 Log.d(TAG, "onDescriptorWrite successfully:" + descriptor.getUuid().toString());
-                //여기서부터 시작
-                progressDialog.setCanceledOnTouchOutside(false);
-                connect_alert_flag = false;
-                if (connect_alert != null) {
-                    if (connect_alert.isShowing()) {
-                        connect_alert.dismiss();
-                        msg = bHandler.obtainMessage(Constants.DIALOG_SHOW);
-                        bHandler.sendMessage(msg);
-                        connect_alert = null;
-                    }
-                }
-
-                start_ = false;
-                TimerCount = 0;         //타이머 카운트 초기화
-                checkTimer_ = true;     //시간 체크 활성화
-                //divide_ = true;
-                doGetProductNum_ = true;
             } else {
                 Log.e(TAG, "onDescriptorWrite read unsuccessful, status: " + status);
             }
@@ -284,6 +283,235 @@
                 sb.append(String.format("%02x ", b & 0xff));
             }
             Log.d("업스트림 메시지 : ", sb.toString());
+	    //여기서 받은 데이터를 데이터 클래스로 전송
             upDataPro.getDataFromPacket(msg);
         }
+    }
+
+
+//메시지 송신
+    public void sendMessage(byte[] data) {
+        // check connection
+        if (!connected_) {
+            Log.e(TAG, "Failed to sendData due to no connection");
+            connect_Timer.cancel();
+            Message msg = bHandler.obtainMessage(Constants.SEND_MESSAGE_ERROR);
+            bHandler.sendMessage(msg);
+            return;
+        }
+        // find command characteristics from the GATT server
+        BluetoothGattCharacteristic cmd_characteristic = BluetoothUtils.findCommandCharacteristic(ble_gatt_);
+        // disconnect if the characteristic is not found
+        if (cmd_characteristic == null) {
+            Log.e(TAG, "Unable to find cmd characteristic");
+            connect_Timer.cancel();
+            Message msg = bHandler.obtainMessage(Constants.SEND_MESSAGE_ERROR);
+            bHandler.sendMessage(msg);
+            return;
+        }
+        // start stimulation
+        startStimulation(cmd_characteristic, data);
+    }
+
+    ;
+
+    /**
+     * Check services and looking for writable characteristics
+     */
+    private int checkGattServices(List<BluetoothGattCharacteristic> gattCharacteristics) {
+        if (mBluetoothAdapter == null || ble_gatt_ == null) {
+            Log.d("checkGattService", "# BluetoothAdapter not initialized");
+            return -1;
+        }
+
+        // Extract characteristics
+        for (BluetoothGattCharacteristic gattCharacteristic : gattCharacteristics) {
+            // Remember characteristic
+            mGattCharacteristics.add(gattCharacteristic);
+            Log.d("checkGattService", "# GATT UUID: " + gattCharacteristic.getUuid());
+
+            boolean isWritable = isWritableCharacteristic(gattCharacteristic);
+            if (isWritable) {
+                mWritableCharacteristics.add(gattCharacteristic);
+            }
+
+            boolean isReadable = isReadableCharacteristic(gattCharacteristic);
+            if (isReadable) {
+                readCharacteristic(gattCharacteristic);
+            }
+
+            if (isNotificationCharacteristic(gattCharacteristic)) {
+                setCharacteristicNotification(gattCharacteristic, true);
+                if (isWritable && isReadable) {
+                    mDefaultChar = gattCharacteristic;
+                }
+            }
+        }
+
+        return mWritableCharacteristics.size();
+    }
+
+    private boolean isWritableCharacteristic(BluetoothGattCharacteristic chr) {
+        if (chr == null) return false;
+
+        final int charaProp = chr.getProperties();
+        if (((charaProp & BluetoothGattCharacteristic.PROPERTY_WRITE) |
+                (charaProp & BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE)) > 0) {
+            Log.d("WritableChar", "# Found writable characteristic");
+            return true;
+        } else {
+            Log.d("WritableChar", "# Not writable characteristic");
+            return false;
+        }
+    }
+
+    private boolean isReadableCharacteristic(BluetoothGattCharacteristic chr) {
+        if (chr == null) return false;
+
+        final int charaProp = chr.getProperties();
+        if ((charaProp & BluetoothGattCharacteristic.PROPERTY_READ) > 0) {
+            Log.d("ReadableChara", "# Found readable characteristic");
+            return true;
+        } else {
+            Log.d("ReadableChara", "# Not readable characteristic");
+            return false;
+        }
+    }
+
+    private boolean isNotificationCharacteristic(BluetoothGattCharacteristic chr) {
+        if (chr == null) return false;
+
+        final int charaProp = chr.getProperties();
+        if ((charaProp & BluetoothGattCharacteristic.PROPERTY_NOTIFY) > 0) {
+            Log.d("NotificationCha", "# Found notification characteristic \n ------" + chr.getUuid().toString());
+            return true;
+        } else {
+            Log.d("NotificationCha", "# Not notification characteristic");
+            return false;
+        }
+    }
+
+    /**
+     * Request a read on a given {@code BluetoothGattCharacteristic}. The read result is reported
+     * asynchronously through the {@code BluetoothGattCallback#onCharacteristicRead(android.bluetooth.BluetoothGatt, android.bluetooth.BluetoothGattCharacteristic, int)}
+     * callback.
+     *
+     * @param characteristic The characteristic to read from.
+     */
+
+    public void readCharacteristic(BluetoothGattCharacteristic characteristic) {
+        if (mBluetoothAdapter == null || ble_gatt_ == null) {
+            Log.d("readCharacteristic", "# BluetoothAdapter not initialized");
+            return;
+        }
+        //ble_gatt_.readCharacteristic(characteristic);
+    }
+
+    /**
+     * Enables or disables notification on a give characteristic.
+     *
+     * @param characteristic Characteristic to act on.
+     * @param enabled        If true, enable notification.  False otherwise.
+     */
+
+    public void setCharacteristicNotification(BluetoothGattCharacteristic characteristic,
+                                              boolean enabled) {
+        if (mBluetoothAdapter == null || ble_gatt_ == null) {
+            Log.d("setc", "# BluetoothAdapter not initialized");
+            return;
+        }
+//        for(BluetoothGattCharacteristic testchar : ble_gatt_.getService(UUID.fromString(SERVICE_STRING)).getCharacteristics()){
+//            ble_gatt_.setCharacteristicNotification(testchar, enabled);
+//        }
+        ble_gatt_.setCharacteristicNotification(characteristic, enabled);
+
+        if ((Constants.CHARACTERISTIC_COMMAND_STRING.equals(characteristic.getUuid().toString())) || (Constants.CHARACTERISTIC_RESPONSE_STRING.equals(characteristic.getUuid().toString()))) {
+            Log.d("setc", "setnoti" + characteristic.getUuid().toString());
+
+            for (BluetoothGattDescriptor descriptor : characteristic.getDescriptors()) {
+                Log.e(TAG, "BluetoothGattDescriptor: " + descriptor.getUuid().toString());
+            }
+
+            BluetoothGattDescriptor descriptor = characteristic.getDescriptor(
+	    	//UUID 입력
+                    UUID.fromString("00002902-0000-1000-8000-00805f9b34fb"));
+            if (0 != (characteristic.getProperties() & BluetoothGattCharacteristic.PROPERTY_INDICATE)) {
+                Log.d("onServicesDiscovered", "Characteristic (" + characteristic.getUuid() + ") is INDICATE");
+                if (descriptor != null) {
+                    descriptor.setValue(BluetoothGattDescriptor.ENABLE_INDICATION_VALUE);
+                    if (!ble_gatt_.writeDescriptor(descriptor)) {
+                        Log.d("setc", "set ENABLE_INDICATION_VALUE 안됨");
+                    }
+                }
+            } else {
+                Log.d("onServicesDiscovered", "Characteristic (" + characteristic.getUuid() + ") is NOTIFY");
+                if (descriptor != null) {
+                    descriptor.setValue(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE);
+                    if (!ble_gatt_.writeDescriptor(descriptor)) {
+                        Log.d("setc", "set ENABLE_NOTIFICATION_VALUE 안됨");
+                    }
+                }
+            }
+
+
+        }
+
+
+    }
+
+   /*Start stimulation
+   @param cmd_characteristic command characteristic instance
+   @param program_id stimulation program id*/
+
+    private void startStimulation(BluetoothGattCharacteristic _cmd_characteristic, byte[] data) {
+        StringBuilder sb = new StringBuilder();
+        for (final byte b : data) {
+            sb.append(String.format("%02x ", b & 0xff));
+        }
+        //downStr.setText(sb.toString());
+        _cmd_characteristic.setValue(data);
+
+        // set values to the characteristic
+        // write the characteristic
+        boolean success = ble_gatt_.writeCharacteristic(_cmd_characteristic);
+        // check the result
+        if (success) {
+            Log.d(TAG, "Wrote to: " + _cmd_characteristic.getUuid().toString());
+            BluetoothGattCharacteristic res_characteristic = BluetoothUtils.findResponseCharacteristic(ble_gatt_);
+            readCharacteristic(res_characteristic);
+            // gatt_client_cb.readCharacteristic(res_characteristic);
+        } else {
+            Log.e(TAG, "Failed to write command");
+        }
+    }
+
+
+
+    private boolean refreshDeviceCache(BluetoothGatt gatt) {
+        try {
+            BluetoothGatt localBluetoothGatt = gatt;
+            Method localMethod = localBluetoothGatt.getClass().getMethod("refresh", new Class[0]);
+            if (localMethod != null) {
+                boolean bool = ((Boolean) localMethod.invoke(localBluetoothGatt, new Object[0])).booleanValue();
+                return bool;
+            }
+        } catch (Exception localException) {
+            Log.e(TAG, "An exception occured while refreshing device");
+        }
+        return false;
+    }
+
+
+    public long getLongCurrentUTC() {
+        Calendar time = Calendar.getInstance(TimeZone.getTimeZone("UTC"));
+        long currentTime = time.getTimeInMillis();
+        return currentTime;
+    }
+
+    public String getStringCurrentUTC() {
+        SimpleDateFormat dateFormatUtc = new SimpleDateFormat("YYYYMMddHHmmss");
+        dateFormatUtc.setTimeZone(TimeZone.getTimeZone("UTC"));
+        Date date = new Date();
+        String utcTime = dateFormatUtc.format(date.getTime());
+        return utcTime;
     }
